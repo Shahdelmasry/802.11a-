@@ -11,7 +11,7 @@ module Pilot_Gen
 
     
     assign feedback = lfsr[6] ^ lfsr[3] ;
-    assign pilot_out = 2'sd1 - 2'sd2*feedback;
+    assign pilot_out = feedback ? 2'b11 : 2'b01;
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
