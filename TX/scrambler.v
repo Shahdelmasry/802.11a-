@@ -1,4 +1,5 @@
 // Top module
+//fsm note : it takes 2 cycles after sending seed to start sending data 
 module scrambler #(
     parameter DATA_LENGTH = 6
 ) (
