@@ -18,8 +18,8 @@ module Pilot_Insertion (
     input              out_ready
     
 );
-    parameter [15:0] P_P = 16'h7FFF; // +1 in Q1.15
-    parameter [15:0] P_N = 16'h8000; // -1 in Q1.15
+     parameter signed [15:0] P_P = 16'h4000; // +1 in Q2.14
+    parameter signed [15:0] P_N = 16'hC000; // -1 in Q2.14
 
     localparam [1:0] CAPTURE   = 2'd0; // Capture 48 complex symbols from the Mapper
     localparam [1:0] SEND_BINS = 2'd1; // Stream 64 complex bins to the IFFT
