@@ -34,6 +34,7 @@ always @(*) begin
 	case (current_state)
 		IDLE: begin
 			if (PHY_TXSTART_req)
+			    PHY_TXSTART_conf <= 1;
 				next_state = PREAMBLE;
 			else
 				next_state = IDLE;		
