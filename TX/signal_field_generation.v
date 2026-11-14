@@ -11,8 +11,8 @@ module signal_field_generation (
     reg mode; // coding rate  mode : 0 --> r = 1/2, 1 --> r = 3/4, 2 --> r = 2/3
     wire Parity;
 	assign Parity = ^{Rate, 1'b0, Length};
-	always@(posedge clk or negedge reset) begin
-		if (!reset)
+        always@(posedge clk or posedge reset) begin
+        if (reset)
            Signal<=0;
         else begin
 				Length <= TXVECTOR[34:23];
