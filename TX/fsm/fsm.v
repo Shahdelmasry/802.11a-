@@ -3,11 +3,13 @@ module fsm (
     input reset,
     input PHY_TXSTART_req,
 	input PHY_DATA_req,	
+	input start_of_data,
+	input end_of_data,
+	output reg counter_en,
     output reg PHY_TXSTART_conf,
 	output reg PHY_DATA_conf,
-	output reg mux_en,
-	output reg start_of_data,
-	output reg end_of_data,
+	output reg preamb_mux_en,
+	output reg signal_mux_en,
 	output reg input_wr_en,
 	output reg input_rd_en
 );
@@ -29,8 +31,9 @@ always @(posedge clk or posedge reset) begin
 end
 // Next state logic
 always @(*) begin
-	start_of_data = 1'b0;
-	end_of_data = 1'b0;
+	preamb_mux_en = 1'b0;
+	signal_mux_en = 1'b0;
+	counter_en = 1'b0;
 	case (current_state)
 		IDLE: begin
 			if (PHY_TXSTART_req)
@@ -41,49 +44,36 @@ always @(*) begin
 		end
 
 		PREAMBLE: begin
-			mux_en = 1'b1; // Enable multiplexer to send preamble
+			preamb_mux_en = 1'b1; // Enable multiplexer to send preamble
 			next_state = SIGNAL;
 		end
 
 		SIGNAL: begin
-			// One cycle to send signal field
-
+			signal_mux_en = 1'b1; // Enable multiplexer to send signal field
 			next_state = DATA;
 		end
 
 		DATA: begin
-		// Stay in DATA state until all data is sent based on the length field
-		if (data_count == Length - 1) begin
-			end_of_data = 1'b1;
-			next_state = IDLE;
-		end else begin
-			start_of_data = (data_count == 0) ? 1'b1 : 1'b0;
+		if (PHY_DATA_req) begin
+			signal_mux_en = 1'b0; // 
+			counter_en = 1'b1; // Enable data counter
+			input_wr_en = 1'b1; // Enable input buffer write
+			PHY_DATA_conf = 1'b1; // Confirm data request
 			next_state = DATA;
+		end 
+		else if (end_of_data)
+			next_state = IDLE;
+		else begin
+			next_state = DATA;
+			counter_en = 1'b0;
+			input_wr_en = 1'b0;
+		end
 		end
 		//bit processing enable 
 
-		end
+		
 
 		default: next_state = IDLE;
 	endcase
 end
-// octet counter for data field
-always @(posedge clk or posedge reset) begin
-	input_wr_en<=0;
-	if (!reset)
-		data_count <= 12'd0;
-	else if (current_state == DATA) begin
-		if (PHY_DATA_req) begin
-			data_count <= data_count + 1;
-			PHY_DATA_conf <= 1'b1; // Acknowledge data request
-			input_wr_en <= 1'b1; // Enable writing to input buffer
-			end
-		end 
-			
-	end 
-	
-
-
-
-
 endmodule
