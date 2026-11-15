@@ -48,7 +48,7 @@ module FFT64_OFDM_Top #(
 
     // Stop accepting input when the current write bank is occupied.
     // This stalls every SDF stage coherently through sample_en.
-    assign in_ready = buffer_wr_ready && !rst && !start;
+    assign in_ready = buffer_wr_ready && rst && !start;
 
     FFT64_Top #(.DATA_WIDTH(DATA_WIDTH)) U_FFT64_CORE (
         .clk(clk),
