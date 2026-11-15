@@ -34,8 +34,8 @@ module FFT_Output_Buffer #(
         rd_data <= mem[{rd_bank, rd_addr}];
     end
 
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
+    always @(posedge clk or negedge rst) begin
+        if (!rst) begin
             wr_bank    <= 1'b0;
             frame_done <= 1'b0;
             done_bank  <= 1'b0;
