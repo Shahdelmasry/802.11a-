@@ -99,8 +99,8 @@ module Pilot_Insertion (
     end
 
     // Capture one OFDM symbol, then stream its 64 bins.
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
+    always @(posedge clk or negedge rst) begin
+        if (!rst) begin
             state         <= CAPTURE;
             data_count    <= 6'd0;
             bin_count     <= 6'd0;
