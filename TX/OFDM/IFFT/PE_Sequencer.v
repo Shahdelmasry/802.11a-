@@ -34,8 +34,8 @@ module PE_Sequencer (
     reg [5:0] count;
 
     // start must not be asserted in the same cycle as sample_en
-    always @(posedge clk or posedge rst) begin
-        if (rst)
+    always @(posedge clk or negedge rst) begin
+        if (!rst)
             count <= 6'd0;
         else if (start)
             count <= 6'd0;
