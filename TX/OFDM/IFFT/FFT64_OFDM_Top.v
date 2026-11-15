@@ -89,8 +89,8 @@ module FFT64_OFDM_Top #(
 
     // A bank is pending once its final transform sample has been stored.
     // The reader drains banks in the same alternating order as the writer.
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
+    always @(posedge clk or negedge rst) begin
+        if (!rst) begin
             pending <= 2'b00;
             read_bank <= 1'b0;
         end else begin
@@ -109,8 +109,8 @@ module FFT64_OFDM_Top #(
     assign rd_release = (cp_state == ST_HOLD) && output_valid && out_ready &&
                         (cp_count == 7'd79);
 
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
+    always @(posedge clk or negedge rst) begin
+        if (!rst) begin
             cp_state <= ST_IDLE;
             cp_count <= 7'd0;
             output_data <= {2*DATA_WIDTH{1'b0}};
