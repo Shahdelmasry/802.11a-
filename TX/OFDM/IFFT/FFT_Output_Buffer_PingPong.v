@@ -30,8 +30,8 @@ module FFT_Output_Buffer_PingPong #(
     always @(posedge clk)
         rd_data <= mem[{rd_bank, rd_addr}];
 
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
+    always @(posedge clk or negedge rst) begin
+        if (!rst) begin
             wr_bank <= 1'b0;
             bank_full <= 2'b00;
             frame_done <= 1'b0;
