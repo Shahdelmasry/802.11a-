@@ -225,8 +225,8 @@ module FFT64_Top #(
     // =====================================================
     reg primed;
 
-    always @(posedge clk or posedge rst) begin
-        if (rst)
+    always @(posedge clk or negedge rst) begin
+        if (!rst)
             primed <= 1'b0;
         else if (start)
             primed <= 1'b0;
