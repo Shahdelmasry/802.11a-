@@ -15,8 +15,8 @@ module Delay_Line #(
 
     integer i;
 
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
+    always @(posedge clk or negedge rst) begin
+        if (!rst) begin
             for (i = 0; i < DELAY; i = i + 1)
                 delay_reg[i] <= {DATA_WIDTH{1'b0}};
         end
