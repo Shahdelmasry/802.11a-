@@ -1,4 +1,3 @@
-
 module preamble_rom #(
     parameter ADDR_WIDTH      = 9,
     parameter INTEGER_BITS    = 2,
@@ -7,22 +6,22 @@ module preamble_rom #(
     parameter ROM_DEPTH       = 320,
     parameter LAST_ADDR       = ROM_DEPTH - 1
 )(
-    input wire clk,
-    input wire rst_n,
+    input  wire                                           clk,
+    input  wire                                           rst_n,
 
     // ROM read request
-    input wire rd_en,
-    input wire [ADDR_WIDTH-1:0] addr,
-    output wire rd_ready,
+    input  wire                                           rd_en,
+    input  wire                          [ADDR_WIDTH-1:0] addr,
+    output wire                                           rd_ready,
 
     // ROM output stream
-    output reg signed [INTEGER_BITS+FRACTIONAL_BITS-1:0] i_out,
-    output reg signed [INTEGER_BITS+FRACTIONAL_BITS-1:0] q_out,
-    output reg valid,
-    output reg last,
+    output reg  signed [INTEGER_BITS+FRACTIONAL_BITS-1:0] i_out,
+    output reg  signed [INTEGER_BITS+FRACTIONAL_BITS-1:0] q_out,
+    output reg                                            valid,
+    output reg                                            last,
 
     // Downstream backpressure
-    input wire out_ready
+    input  wire                                           out_ready
 );
 
     localparam CHANNEL_WIDTH = INTEGER_BITS + FRACTIONAL_BITS;
