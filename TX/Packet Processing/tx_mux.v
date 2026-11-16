@@ -1,29 +1,28 @@
-
 module tx_mux #(
     parameter DATA_WIDTH = 16
 )(
-    input wire [1:0] sel,
+    input  wire                   [1:0] sel,
 
     // Source 1: Preamble ROM
-    input wire signed [DATA_WIDTH-1:0] preamble_i,
-    input wire signed [DATA_WIDTH-1:0] preamble_q,
-    input wire preamble_valid,
-    input wire preamble_last,
-    output wire preamble_ready,
+    input  wire signed [DATA_WIDTH-1:0] preamble_i,
+    input  wire signed [DATA_WIDTH-1:0] preamble_q,
+    input  wire                         preamble_valid,
+    input  wire                         preamble_last,
+    output wire                         preamble_ready,
 
     // Source 2: IFFT + Cyclic Prefix
-    input wire signed [DATA_WIDTH-1:0] ifft_data_i,
-    input wire signed [DATA_WIDTH-1:0] ifft_data_q,
-    input wire ifft_valid,
-    input wire ifft_last,
-    output wire ifft_ready,
+    input  wire signed [DATA_WIDTH-1:0] ifft_data_i,
+    input  wire signed [DATA_WIDTH-1:0] ifft_data_q,
+    input  wire                         ifft_valid,
+    input  wire                         ifft_last,
+    output wire                         ifft_ready,
 
     // Output to upsampler
-    output reg signed [DATA_WIDTH-1:0] mux_out_i,
-    output reg signed [DATA_WIDTH-1:0] mux_out_q,
-    output reg mux_valid,
-    output reg mux_last,
-    input wire mux_ready
+    output reg  signed [DATA_WIDTH-1:0] mux_out_i,
+    output reg  signed [DATA_WIDTH-1:0] mux_out_q,
+    output reg                          mux_valid,
+    output reg                          mux_last,
+    input  wire                         mux_ready
 );
 
     localparam SEL_IDLE     = 2'b00;
@@ -31,11 +30,9 @@ module tx_mux #(
     localparam SEL_IFFT     = 2'b10;
 
     // Ready routing
-    assign preamble_ready =
-        (sel == SEL_PREAMBLE) && mux_ready;
+    assign preamble_ready = (sel == SEL_PREAMBLE) && mux_ready;
 
-    assign ifft_ready =
-        (sel == SEL_IFFT) && mux_ready;
+    assign ifft_ready     = (sel == SEL_IFFT)     && mux_ready;
 
     // Combinational source selection
     always @(*) begin
