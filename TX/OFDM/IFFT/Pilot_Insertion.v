@@ -2,6 +2,7 @@
 module Pilot_Insertion (
     input              clk,
     input              rst,
+    input              start,  // new packet: abandon buffered symbols, restart at bank 0
 
     // Mapper interface: one complex symbol per accepted transfer
     input      [31:0]  in_data,
@@ -17,32 +18,37 @@ module Pilot_Insertion (
     output reg [31:0]  out_data,
     output             out_valid,
     input              out_ready
-    
+
 );
+    // Symbol n+1 is captured into one bank while symbol n is streamed from
+    // the other, so the mapper is no longer blocked for the 64 send clocks.
+    // Per-symbol budget: max(48 capture, 64 send) instead of 48 + 64.
+
     parameter signed [15:0] P_P = 16'h4000; // +1 in Q2.14
     parameter signed [15:0] P_N = 16'hC000; // -1 in Q2.14
 
-    localparam [1:0] CAPTURE   = 2'd0; // Capture 48 complex symbols from the Mapper
-    localparam [1:0] SEND_BINS = 2'd1; // Stream 64 complex bins to the IFFT
+    reg [5:0] data_count;   // capture index 0..47 in the write bank
+    reg [5:0] bin_count;    // send index 0..63 from the read bank
 
-    reg [1:0] state;
-    reg [5:0] data_count;
-    reg [5:0] bin_count;
+    reg       wr_bank;      // bank being captured
+    reg       rd_bank;      // bank being streamed
+    reg [1:0] bank_full;    // bank holds a complete 48-sample symbol
 
-    // 48 complex data symbols from the Mapper
-    reg [31:0] data_buf [0:47];
-
-    // Polarity held constant for the current OFDM symbol
-    reg signed [1:0] pilot_latched;
+    // Two banks of 48 complex data symbols: bank 0 = 0..47, bank 1 = 48..95
+    reg [31:0] data_buf [0:95];
 
     integer idx;
 
-    assign in_ready = (state == CAPTURE);
-    assign out_valid = (state == SEND_BINS);
+    wire [6:0] wr_addr;
+    wire [6:0] rd_addr;
+
+    // No transfer is accepted on either side while start is asserted.
+    assign in_ready  = !bank_full[wr_bank] && !start;
+    assign out_valid =  bank_full[rd_bank] && !start;
 
     // Advance once, when bin 63 of the current symbol is accepted.
     assign sym_advance =
-        (state == SEND_BINS) &&
+        out_valid &&
         out_ready &&
         (bin_count == 6'd63);
 
@@ -68,22 +74,28 @@ module Pilot_Insertion (
         end
     endfunction
 
+    assign wr_addr = wr_bank ? (7'd48 + data_count) : {1'b0, data_count};
+
     // Packing: {I[15:0], Q[15:0]}.
+    // Pilot polarity: pilot_in is used while the symbol is streamed. Pilot_Gen
+    // only advances on sym_advance (bin 63 of this symbol, a null bin), so
+    // pilot_in is constant for all 64 bins of the symbol being sent.
+
     always @ (*) begin
         out_data = 32'd0;
         idx = data_index_for_bin(bin_count);
 
-        if (state == SEND_BINS) begin
+        if (bank_full[rd_bank]) begin
             case (bin_count)
               6'd7, 6'd43, 6'd57: begin
-                if (pilot_latched == -2'sd1)
+                if (pilot_in == -2'sd1)
                     out_data = {P_N, 16'h0000};
                 else
                     out_data = {P_P, 16'h0000};
                 end
 
               6'd21: begin
-                if (pilot_latched == -2'sd1)
+                if (pilot_in == -2'sd1)
                     out_data = {P_P, 16'h0000};
                 else
                      out_data = {P_N, 16'h0000};
@@ -91,7 +103,7 @@ module Pilot_Insertion (
 
                 default: begin
                   if (idx >= 0)
-                      out_data = data_buf[idx];
+                      out_data = rd_bank ? data_buf[48 + idx] : data_buf[idx];
                   else
                       out_data = 32'd0;
               end
@@ -99,54 +111,52 @@ module Pilot_Insertion (
         end
     end
 
-    // Capture one OFDM symbol, then stream its 64 bins.
+    // Capture side: fill the write bank, then hand it to the send side.
+    // Send side: stream 64 bins from the read bank, then release it.
+    // A bank is only written while empty and only read while full, so the
+    // two sides never touch the same bank.
     always @(posedge clk or negedge rst) begin
         if (!rst) begin
-            state         <= CAPTURE;
-            data_count    <= 6'd0;
-            bin_count     <= 6'd0;
-            pilot_latched <= 2'sd1;
+            data_count <= 6'd0;
+            bin_count  <= 6'd0;
+            wr_bank    <= 1'b0;
+            rd_bank    <= 1'b0;
+            bank_full  <= 2'b00;
+        end else if (start) begin
+            data_count <= 6'd0;
+            bin_count  <= 6'd0;
+            wr_bank    <= 1'b0;
+            rd_bank    <= 1'b0;
+            bank_full  <= 2'b00;
         end else begin
-            case (state)
-                CAPTURE: begin
-                         if (in_valid && in_ready) begin
 
-                         // Store the accepted complex sample.
-                        data_buf[data_count] <= in_data;
+            // ---------------- capture ----------------
+            if (in_valid && in_ready) begin
 
-                        // Latch pilot polarity once per OFDM symbol.
-                         if (data_count == 6'd0)
-                        pilot_latched <= pilot_in;
+                // Store the accepted complex sample.
+                data_buf[wr_addr] <= in_data;
 
-                        // The final sample must be sample 48 (index 47).
-                        if (in_last && (data_count == 6'd47)) begin
-                        data_count <= 6'd0;
-                        bin_count  <= 6'd0;
-                        state      <= SEND_BINS;
-                        end
-                     else if (!in_last && (data_count < 6'd47)) begin
-                            data_count <= data_count + 1'b1;
-                                                                end
-                        end
+                // The final sample must be sample 48 (index 47).
+                if (in_last && (data_count == 6'd47)) begin
+                    data_count          <= 6'd0;
+                    bank_full[wr_bank]  <= 1'b1;
+                    wr_bank             <= ~wr_bank;
                 end
-
-                SEND_BINS: begin
-                    if (out_valid && out_ready) begin
-                        if (bin_count == 6'd63) begin
-                            bin_count <= 6'd0;
-                            state     <= CAPTURE;
-                        end else begin
-                            bin_count <= bin_count + 1'b1;
-                        end
-                    end
+                else if (!in_last && (data_count < 6'd47)) begin
+                    data_count <= data_count + 1'b1;
                 end
+            end
 
-                default: begin
-                    state      <= CAPTURE;
-                    data_count <= 6'd0;
-                    bin_count  <= 6'd0;
+            // ---------------- send ----------------
+            if (out_valid && out_ready) begin
+                if (bin_count == 6'd63) begin
+                    bin_count           <= 6'd0;
+                    bank_full[rd_bank]  <= 1'b0;
+                    rd_bank             <= ~rd_bank;
+                end else begin
+                    bin_count <= bin_count + 1'b1;
                 end
-            endcase
+            end
         end
     end
 
