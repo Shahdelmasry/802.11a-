@@ -35,7 +35,7 @@ module pp_top #(
     // =========================================================
     // Internal Interconnect Wires
     // =========================================================
-    
+
     // 1. ROM to MUX
     wire signed [DATA_WIDTH-1:0] rom_to_mux_i;
     wire signed [DATA_WIDTH-1:0] rom_to_mux_q;
@@ -61,7 +61,7 @@ module pp_top #(
     wire signed [DATA_WIDTH-1:0] fir_to_dac_i;
     wire signed [DATA_WIDTH-1:0] fir_to_dac_q;
     wire                         fir_to_dac_valid;
-    wire                         fir_to_dac_last; 
+    wire                         fir_to_dac_last;
     wire                         dac_to_fir_ready;
 
     // =========================================================
@@ -72,7 +72,7 @@ module pp_top #(
         .ADDR_WIDTH(9),
         .INTEGER_BITS(2),
         .FRACTIONAL_BITS(14),
-        .ROM_FILE("preamble_rom_data.mem"), 
+        .ROM_FILE("preamble_rom_data.mem"),
         .ROM_DEPTH(320)
     ) u_preamble_rom (
         .clk(clk),
@@ -110,7 +110,7 @@ module pp_top #(
 
     upsampler_zero_stuffing #(
         .DATA_WIDTH(DATA_WIDTH),
-        .L(2)
+        .L(4)                       // Option B (approved 2026-11-17): 20 MS/s -> 80 MS/s at the 80 MHz clock
     ) u_upsampler_zero (
         .clk(clk),
         .rst_n(rst_n),
@@ -129,7 +129,7 @@ module pp_top #(
     upsampler_fir #(
         .DATA_WIDTH(DATA_WIDTH),
         .COEFF_WIDTH(16),
-        .NUM_TAPS(7),
+        .NUM_TAPS(43),              // Option B interpolation filter (see upsampler_fir.v)
         .FRAC_BITS(14)
     ) u_upsampler_fir (
         .clk(clk),

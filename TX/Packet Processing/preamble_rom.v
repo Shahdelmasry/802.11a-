@@ -39,10 +39,25 @@ module preamble_rom #(
         $readmemh(ROM_FILE, rom_array);
     end
 
+    // Revision (approved 2026-11-17, PR-2): the sample registers have no reset
+    // and are only loaded on an accepted read, so synthesis can use the block-RAM
+    // output register. Data is only meaningful while valid = 1 (tx_mux / upsampler
+    // take it only on valid), so the old "clear to 0" of i_out/q_out is not needed.
+    always @(posedge clk) begin
+        if (rd_en && rd_ready && (addr < ROM_DEPTH)) begin
+            i_out <= $signed(
+                rom_array[addr][DATA_WIDTH-1:CHANNEL_WIDTH]
+            );
+
+            q_out <= $signed(
+                rom_array[addr][CHANNEL_WIDTH-1:0]
+            );
+        end
+    end
+
+    // Handshake state (unchanged behaviour)
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            i_out <= 0;
-            q_out <= 0;
             valid <= 1'b0;
             last  <= 1'b0;
         end
@@ -52,23 +67,11 @@ module preamble_rom #(
             if (rd_en && rd_ready) begin
 
                 if (addr < ROM_DEPTH) begin
-
-                    i_out <= $signed(
-                        rom_array[addr][DATA_WIDTH-1:CHANNEL_WIDTH]
-                    );
-
-                    q_out <= $signed(
-                        rom_array[addr][CHANNEL_WIDTH-1:0]
-                    );
-
                     valid <= 1'b1;
                     last  <= (addr == LAST_ADDR);
-
                 end
                 else begin
                     // Invalid address: do not produce a valid sample
-                    i_out <= 0;
-                    q_out <= 0;
                     valid <= 1'b0;
                     last  <= 1'b0;
                 end
@@ -77,8 +80,6 @@ module preamble_rom #(
 
             // Current sample consumed, no replacement requested
             else if (valid && out_ready) begin
-                i_out <= 0;
-                q_out <= 0;
                 valid <= 1'b0;
                 last  <= 1'b0;
             end
