@@ -1,5 +1,13 @@
 // Integrated 64-point transform + ping-pong frame buffer + 16-sample CP.
 
+//   1  Streaming CP reader
+//   2  Packet-end flush: flush_req (1-clock pulse, issued when the 64th bin
+//         of the packet's last symbol is accepted) pushes exactly 63 zero
+//         samples through the IFFT so that the last symbol leaves the SDF
+//         pipeline. in_ready = 0 during the flush.
+//   3  tx_done: 1-clock pulse after the 80th sample of the packet's last
+//         symbol has been accepted downstream.
+
 module FFT64_OFDM_Top #(
     parameter DATA_WIDTH = 16
 )(
@@ -11,6 +19,10 @@ module FFT64_OFDM_Top #(
     input  wire ifft_mode,
     input  wire signed [DATA_WIDTH-1:0] I_in,
     input  wire signed [DATA_WIDTH-1:0] Q_in,
+
+    // Packet-end control
+    input  wire flush_req,
+    output reg  tx_done,
 
     output wire out_valid,
     input  wire out_ready,
@@ -33,31 +45,65 @@ module FFT64_OFDM_Top #(
     reg [1:0] pending;
     reg read_bank;
 
-    reg [1:0] cp_state;
-    localparam ST_IDLE    = 2'd0;
-    localparam ST_ISSUE   = 2'd1;
-    localparam ST_CAPTURE = 2'd2;
-    localparam ST_HOLD    = 2'd3;
-
     reg [6:0] cp_count;
-    reg [2*DATA_WIDTH-1:0] output_data;
     reg output_valid;
 
+    wire [6:0] rd_index;
     wire [5:0] buffer_rd_addr;
+    wire buffer_rd_bank;
     wire rd_release;
+    wire out_fire;
 
-    // Stop accepting input when the current write bank is occupied.
-    // This stalls every SDF stage coherently through sample_en.
-    assign in_ready = buffer_wr_ready && rst && !start;
+    // =====================================================
+    // PACKET-END FLUSH (2)
+    // =====================================================
+    reg flushing;
+    reg [5:0] flush_count;
+    wire flush_en;
+
+    
+    assign flush_en = flushing && buffer_wr_ready && !start;
+
+    // Stop accepting input when the current write bank is occupied,
+        assign in_ready = buffer_wr_ready && rst && !start && !flushing;
+
+    wire core_sample_en;
+    wire signed [DATA_WIDTH-1:0] core_I_in;
+    wire signed [DATA_WIDTH-1:0] core_Q_in;
+
+    assign core_sample_en = (in_valid && in_ready) || flush_en;
+    assign core_I_in = flushing ? {DATA_WIDTH{1'b0}} : I_in;
+    assign core_Q_in = flushing ? {DATA_WIDTH{1'b0}} : Q_in;
+
+    always @(posedge clk or negedge rst) begin
+        if (!rst) begin
+            flushing <= 1'b0;
+            flush_count <= 6'd0;
+        end else if (start) begin
+            flushing <= 1'b0;
+            flush_count <= 6'd0;
+        end else if (flush_req && !flushing) begin
+            flushing <= 1'b1;
+            flush_count <= 6'd0;
+        end else if (flush_en) begin
+            // 63 samples: flush_count 0..62
+            if (flush_count == 6'd62) begin
+                flushing <= 1'b0;
+                flush_count <= 6'd0;
+            end else begin
+                flush_count <= flush_count + 6'd1;
+            end
+        end
+    end
 
     FFT64_Top #(.DATA_WIDTH(DATA_WIDTH)) U_FFT64_CORE (
         .clk(clk),
         .rst(rst),
         .start(start),
-        .sample_en(in_valid && in_ready),
+        .sample_en(core_sample_en),
         .ifft_mode(ifft_mode),
-        .I_in(I_in),
-        .Q_in(Q_in),
+        .I_in(core_I_in),
+        .Q_in(core_Q_in),
         .out_valid(core_valid),
         .out_last(core_last),
         .out_index(core_index),
@@ -75,20 +121,17 @@ module FFT64_OFDM_Top #(
         .wr_ready(buffer_wr_ready),
         .frame_done(frame_done),
         .done_bank(done_bank),
-        .rd_bank(read_bank),
+        .rd_bank(buffer_rd_bank),
         .rd_addr(buffer_rd_addr),
         .rd_data(buffer_rd_data),
         .rd_release(rd_release),
         .rd_release_bank(read_bank)
     );
 
-    // Read address sequence: 48..63, then 0..63.
-    assign buffer_rd_addr = (cp_count < 7'd16)
-                          ? (6'd48 + cp_count[5:0])
-                          : (cp_count - 7'd16);
-
+    
     // A bank is pending once its final transform sample has been stored.
     // The reader drains banks in the same alternating order as the writer.
+    
     always @(posedge clk or negedge rst) begin
         if (!rst) begin
             pending <= 2'b00;
@@ -104,63 +147,95 @@ module FFT64_OFDM_Top #(
         end
     end
 
-    // Synchronous RAM read is captured into a holding register. The simple
-  
-    assign rd_release = (cp_state == ST_HOLD) && output_valid && out_ready &&
-                        (cp_count == 7'd79);
+    
+    // STREAMING CP READER (1)
+    // output_valid = buffer_rd_data holds sample cp_count of read_bank.
+    // Read order per symbol: 48..63 (cyclic prefix), then 0..63.
+    
+    assign out_fire   = output_valid && out_ready;
+    assign rd_release = out_fire && (cp_count == 7'd79);
+
+    // Index whose data must appear on buffer_rd_data at the next clock:
+    //   idle            -> 0 (prime the first sample of a pending bank)
+    //   stalled         -> hold cp_count
+    //   accepted, < 79  -> cp_count + 1
+    //   accepted, = 79  -> 0 of the other bank
+    assign rd_index = !output_valid ? 7'd0 :
+                      !out_ready    ? cp_count :
+                      (cp_count == 7'd79) ? 7'd0 :
+                                            (cp_count + 7'd1);
+
+    assign buffer_rd_bank = rd_release ? ~read_bank : read_bank;
+
+    assign buffer_rd_addr = (rd_index < 7'd16)
+                          ? (6'd48 + rd_index[5:0])
+                          : (rd_index - 7'd16);
 
     always @(posedge clk or negedge rst) begin
         if (!rst) begin
-            cp_state <= ST_IDLE;
-            cp_count <= 7'd0;
-            output_data <= {2*DATA_WIDTH{1'b0}};
             output_valid <= 1'b0;
+            cp_count <= 7'd0;
         end else begin
-            case (cp_state)
-                ST_IDLE: begin
-                    output_valid <= 1'b0;
-                    cp_count <= 7'd0;
-                    if (pending[read_bank])
-                        cp_state <= ST_ISSUE;
-                end
-
-                ST_ISSUE: begin
-                    // The buffer samples this cycle's address at this edge.
-                    cp_state <= ST_CAPTURE;
-                end
-
-                ST_CAPTURE: begin
-                    output_data <= buffer_rd_data;
+            if (!output_valid) begin
+                // Prime: address 48 of a pending bank is being read now.
+                if (pending[read_bank]) begin
                     output_valid <= 1'b1;
-                    cp_state <= ST_HOLD;
-                end
-
-                ST_HOLD: begin
-                    if (output_valid && out_ready) begin
-                        output_valid <= 1'b0;
-                        if (cp_count == 7'd79) begin
-                            cp_count <= 7'd0;
-                            cp_state <= ST_IDLE;
-                        end else begin
-                            cp_count <= cp_count + 7'd1;
-                            cp_state <= ST_ISSUE;
-                        end
-                    end
-                end
-
-                default: begin
-                    cp_state <= ST_IDLE;
-                    output_valid <= 1'b0;
                     cp_count <= 7'd0;
                 end
-            endcase
+            end else if (out_fire) begin
+                if (cp_count == 7'd79) begin
+                    // Continue with the next bank without a bubble if it is
+                    // already complete; otherwise return to idle.
+                    output_valid <= pending[~read_bank];
+                    cp_count <= 7'd0;
+                end else begin
+                    cp_count <= cp_count + 7'd1;
+                end
+            end
+        end
+    end
+
+    
+    // END-OF-PACKET TRACKING (3)
+    // The frame that completes after flush_req is the packet's last symbol.
+    
+    reg last_expected;
+    reg last_ready;
+    reg last_bank;
+
+    always @(posedge clk or negedge rst) begin
+        if (!rst) begin
+            last_expected <= 1'b0;
+            last_ready <= 1'b0;
+            last_bank <= 1'b0;
+            tx_done <= 1'b0;
+        end else if (start) begin
+            last_expected <= 1'b0;
+            last_ready <= 1'b0;
+            tx_done <= 1'b0;
+        end else begin
+            tx_done <= 1'b0;
+
+            if (flush_req)
+                last_expected <= 1'b1;
+
+            if (frame_done && last_expected) begin
+                last_expected <= 1'b0;
+                last_ready <= 1'b1;
+                last_bank <= done_bank;
+            end
+
+            if (rd_release && last_ready && (read_bank == last_bank)) begin
+                last_ready <= 1'b0;
+                tx_done <= 1'b1;
+            end
         end
     end
 
     assign out_valid = output_valid;
     assign out_last = output_valid && (cp_count == 7'd79);
     assign out_index = cp_count;
-    assign I_out = $signed(output_data[2*DATA_WIDTH-1:DATA_WIDTH]);
-    assign Q_out = $signed(output_data[DATA_WIDTH-1:0]);
+    assign I_out = $signed(buffer_rd_data[2*DATA_WIDTH-1:DATA_WIDTH]);
+    assign Q_out = $signed(buffer_rd_data[DATA_WIDTH-1:0]);
 
 endmodule
