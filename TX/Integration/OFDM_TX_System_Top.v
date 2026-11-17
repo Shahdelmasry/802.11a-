@@ -17,9 +17,11 @@ module OFDM_TX_System_Top #(
     input  wire [31:0]                  mapper_data,
     input  wire                         mapper_valid,
     input  wire                         mapper_last,
+    input  wire                         pkt_last,      // FSM: current symbol is the last of the packet
 
     // Pilot Insertion status for Master FSM
     output wire                         mapper_capture_ready,
+    output wire                         tx_done,       // last sample of the packet's last symbol delivered
 
     // DAC interface
     output wire                         dac_clk,
@@ -51,7 +53,9 @@ module OFDM_TX_System_Top #(
         .mapper_data          (mapper_data),
         .mapper_valid         (mapper_valid),
         .mapper_last          (mapper_last),
+        .pkt_last             (pkt_last),
         .mapper_capture_ready (mapper_capture_ready),
+        .tx_done              (tx_done),
 
         .out_valid            (ifft_stream_valid),
         .out_ready            (ifft_stream_ready),
