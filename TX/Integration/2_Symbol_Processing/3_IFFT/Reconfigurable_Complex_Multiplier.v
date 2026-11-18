@@ -1,14 +1,19 @@
 
+
+
 module Reconfigurable_Complex_Multiplier
 (
+    input wire clk,
+    input wire en,
+
     input wire signed [15:0] I_in,
     input wire signed [15:0] Q_in,
 
-    input wire s1,
-    input wire s2,
-    input wire s3,
-    input wire s4,
-    input wire s5,
+    input wire s1,              // before R2
+    input wire s2,              // before R2
+    input wire s3,              // after R2
+    input wire s4,              // after R2
+    input wire s5,              // after R2
 
     input wire signed [15:0] coeff_i,
     input wire signed [15:0] coeff_q,
@@ -48,6 +53,8 @@ module Reconfigurable_Complex_Multiplier
 
     Complex_Multiplier U_CM
     (
+        .clk      (clk),
+        .en       (en),
         .I_in     (I_prime),
         .Q_in     (Q_prime),
         .coeff_i  (coeff_i),
@@ -58,14 +65,29 @@ module Reconfigurable_Complex_Multiplier
 
 
     // ----------------------------------------
+    // Bypass Register (R2, aligned with the products)
+    // ----------------------------------------
+
+    reg signed [15:0] I_prime_r;
+    reg signed [15:0] Q_prime_r;
+
+    always @(posedge clk) begin
+        if (en) begin
+            I_prime_r <= I_prime;
+            Q_prime_r <= Q_prime;
+        end
+    end
+
+
+    // ----------------------------------------
     // Output MUXes - s3
     // ----------------------------------------
 
     wire signed [15:0] I_mux_out;
     wire signed [15:0] Q_mux_out;
 
-    assign I_mux_out = s3 ? I_cm : I_prime;
-    assign Q_mux_out = s3 ? Q_cm : Q_prime;
+    assign I_mux_out = s3 ? I_cm : I_prime_r;
+    assign Q_mux_out = s3 ? Q_cm : Q_prime_r;
 
 
     // ----------------------------------------
