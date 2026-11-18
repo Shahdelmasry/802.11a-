@@ -1,0 +1,55 @@
+`timescale 1ns / 1ps
+
+module dac #(
+    parameter DATA_WIDTH = 16
+)(
+    input  wire                         clk,      // System Clock
+    input  wire                         rst_n,    // Active-low Reset
+
+    // Upstream (from FIR Filter)
+    input  wire signed [DATA_WIDTH-1:0] filter_i,
+    input  wire signed [DATA_WIDTH-1:0] filter_q,
+    input  wire                         filter_valid,
+    output wire                         filter_ready,
+
+    // Downstream (Physical Pins connected to the FMC / external DAC IC)
+    output wire                         dac_clk,    // Clock forwarded to the DAC chip
+    output reg         [DATA_WIDTH-1:0] dac_data_i, // I-channel physical pins
+    output reg         [DATA_WIDTH-1:0] dac_data_q  // Q-channel physical pins
+);
+
+    // =========================================================
+    // 1. Ready Logic
+    // =========================================================
+    // The DAC physical interface is a continuous sink, it is always ready.
+    assign filter_ready = 1'b1;
+
+    // =========================================================
+    // 2. Clock Forwarding
+    // =========================================================
+    // Forward the system clock to the DAC so it samples data synchronously.
+    // (Note: In a real implementation on Artix-7, ODDR is highly recommended here)
+    assign dac_clk = clk;
+
+    // =========================================================
+    // 3. Drive the Physical Pins
+    // =========================================================
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            dac_data_i <= {DATA_WIDTH{1'b0}};
+            dac_data_q <= {DATA_WIDTH{1'b0}};
+        end 
+        else begin
+            // Drive data to the output pins if valid, otherwise drive zeros
+            if (filter_valid) begin
+                dac_data_i <= filter_i;
+                dac_data_q <= filter_q;
+            end 
+            else begin
+                dac_data_i <= {DATA_WIDTH{1'b0}};
+                dac_data_q <= {DATA_WIDTH{1'b0}};
+            end
+        end
+    end
+
+endmodule
