@@ -1,6 +1,10 @@
 
+// - Pipeline register R2 on the three products P1, P2, P3, loaded when en = 1
 module Complex_Multiplier
 (
+    input  wire               clk,
+    input  wire               en,
+
     input  wire signed [15:0] I_in,
     input  wire signed [15:0] Q_in,
 
@@ -38,13 +42,29 @@ assign coeff_diff =
 // Three Real Multipliers
 //------------------------------------------------
 
-wire signed [32:0] P1;
-wire signed [32:0] P2;
-wire signed [32:0] P3;
+wire signed [32:0] P1_comb;
+wire signed [32:0] P2_comb;
+wire signed [32:0] P3_comb;
 
-assign P1 = I_plus_Q  * coeff_i;
-assign P2 = Q_in      * coeff_diff;
-assign P3 = I_minus_Q * coeff_q;
+assign P1_comb = I_plus_Q  * coeff_i;
+assign P2_comb = Q_in      * coeff_diff;
+assign P3_comb = I_minus_Q * coeff_q;
+
+//------------------------------------------------
+// Product Registers (R2)
+//------------------------------------------------
+
+reg signed [32:0] P1;
+reg signed [32:0] P2;
+reg signed [32:0] P3;
+
+always @(posedge clk) begin
+    if (en) begin
+        P1 <= P1_comb;
+        P2 <= P2_comb;
+        P3 <= P3_comb;
+    end
+end
 
 //------------------------------------------------
 // Output Adders

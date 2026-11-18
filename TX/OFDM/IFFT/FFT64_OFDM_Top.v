@@ -2,11 +2,19 @@
 
 //   1  Streaming CP reader
 //   2  Packet-end flush: flush_req (1-clock pulse, issued when the 64th bin
-//         of the packet's last symbol is accepted) pushes exactly 63 zero
+//         of the packet's last symbol is accepted) pushes FLUSH_LEN zero
 //         samples through the IFFT so that the last symbol leaves the SDF
 //         pipeline. in_ready = 0 during the flush.
 //   3  tx_done: 1-clock pulse after the 80th sample of the packet's last
 //         symbol has been accepted downstream.
+
+
+//   FFT64_Top now has CORE_PIPE = 5 sample_en pipeline registers, so its
+//   - the flush is 68 samples (flush_count 0..67, now 7 bits);
+//   - the previous symbol's frame now completes AFTER flush_req, so the last
+//     frame is identified as the frame written by the final flush sample
+//     (its frame_done follows one clock later), not as "the next frame_done
+//     after flush_req".
 
 module FFT64_OFDM_Top #(
     parameter DATA_WIDTH = 16
@@ -57,12 +65,19 @@ module FFT64_OFDM_Top #(
     // =====================================================
     // PACKET-END FLUSH (2)
     // =====================================================
-    reg flushing;
-    reg [5:0] flush_count;
-    wire flush_en;
+    localparam CORE_PIPE = 5;               // pipeline registers in FFT64_Top
+    localparam FLUSH_LEN = 63 + CORE_PIPE;  // zero samples pushed after the last symbol
 
-    
+    reg flushing;
+    reg [6:0] flush_count;
+    wire flush_en;
+    wire flush_final;
+
+
     assign flush_en = flushing && buffer_wr_ready && !start;
+
+    // Final flush sample: the core writes the last sample of the last frame.
+    assign flush_final = flush_en && (flush_count == FLUSH_LEN - 1);
 
     // Stop accepting input when the current write bank is occupied,
         assign in_ready = buffer_wr_ready && rst && !start && !flushing;
@@ -78,20 +93,20 @@ module FFT64_OFDM_Top #(
     always @(posedge clk or negedge rst) begin
         if (!rst) begin
             flushing <= 1'b0;
-            flush_count <= 6'd0;
+            flush_count <= 7'd0;
         end else if (start) begin
             flushing <= 1'b0;
-            flush_count <= 6'd0;
+            flush_count <= 7'd0;
         end else if (flush_req && !flushing) begin
             flushing <= 1'b1;
-            flush_count <= 6'd0;
+            flush_count <= 7'd0;
         end else if (flush_en) begin
-            // 63 samples: flush_count 0..62
-            if (flush_count == 6'd62) begin
+            // FLUSH_LEN samples: flush_count 0..FLUSH_LEN-1
+            if (flush_final) begin
                 flushing <= 1'b0;
-                flush_count <= 6'd0;
+                flush_count <= 7'd0;
             end else begin
-                flush_count <= flush_count + 6'd1;
+                flush_count <= flush_count + 7'd1;
             end
         end
     end
@@ -128,10 +143,10 @@ module FFT64_OFDM_Top #(
         .rd_release_bank(read_bank)
     );
 
-    
+
     // A bank is pending once its final transform sample has been stored.
     // The reader drains banks in the same alternating order as the writer.
-    
+
     always @(posedge clk or negedge rst) begin
         if (!rst) begin
             pending <= 2'b00;
@@ -147,11 +162,11 @@ module FFT64_OFDM_Top #(
         end
     end
 
-    
+
     // STREAMING CP READER (1)
     // output_valid = buffer_rd_data holds sample cp_count of read_bank.
     // Read order per symbol: 48..63 (cyclic prefix), then 0..63.
-    
+
     assign out_fire   = output_valid && out_ready;
     assign rd_release = out_fire && (cp_count == 7'd79);
 
@@ -195,10 +210,11 @@ module FFT64_OFDM_Top #(
         end
     end
 
-    
+
     // END-OF-PACKET TRACKING (3)
-    // The frame that completes after flush_req is the packet's last symbol.
-    
+    // The frame written by the final flush sample is the packet's last
+    // symbol; its frame_done arrives one clock after flush_final.
+
     reg last_expected;
     reg last_ready;
     reg last_bank;
@@ -216,7 +232,7 @@ module FFT64_OFDM_Top #(
         end else begin
             tx_done <= 1'b0;
 
-            if (flush_req)
+            if (flush_final)
                 last_expected <= 1'b1;
 
             if (frame_done && last_expected) begin
