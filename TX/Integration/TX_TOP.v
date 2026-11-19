@@ -125,6 +125,7 @@ TX_DATAPATH #(
     .mapper_capture_ready(mapper_capture_ready),
     .tx_done(tx_done),
     .dac_data_i(DAC_DATA_I),
+    .last_valid(last_valid),
     .dac_data_q(DAC_DATA_Q)
 
 );
