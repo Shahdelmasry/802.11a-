@@ -60,6 +60,9 @@ wire [11:0] Length;
 wire [3:0]  rate;
 wire [2:0]  powerlevel;
 wire [8:0]  ndbps;
+wire [5:0]  mux1,mux2,mux3,mux4;
+wire        last_valid;
+wire        address_count_en;
 
 
 
@@ -77,6 +80,8 @@ mac_phy_interface #(
     .PHY_TXSTART_conf(PHY_TXSTART_conf),
     .data_confirm(PHY_DATA_conf),
     .PHY_TXEND_CONF(PHY_TXEND_CONF),
+    .rate(rate),
+    .length(Length),
     .header_valid(header_valid),
     .vec_err(vec_err),
     .data(data),
@@ -84,7 +89,9 @@ mac_phy_interface #(
     .abort(abort),
     .flushing(flushing),
     .txend_pulse(txend_pulse),
-    .busy(fifo_busy)
+    .busy(fifo_busy),
+    .data_ready(data_ready),
+    .phy_tx_done(tx_done)
 );
 
 // Data path 
@@ -119,13 +126,13 @@ TX_DATAPATH #(
     .tx_done(tx_done),
     .dac_data_i(DAC_DATA_I),
     .dac_data_q(DAC_DATA_Q)
+
 );
 
 //Controller
 TX_CONTROLLER tx_controller_inst(
     .clk(r_clk)
     .rst_n(r_rstn),
-    .preamble_valid(), /////
     .fifo_busy(fifo_busy),
     .fifo_data_valid(data_valid),
     .fifo_header_valid(header_valid),
@@ -148,20 +155,23 @@ TX_CONTROLLER tx_controller_inst(
     .signal_mux_en(scr_bypass),
     .input_wr_en(input_wr_en),
     .input_rd_en(input_rd_en),
+    .address_count_en(address_count_en)
 
 );
 
 signal_field_generation SFG_inst (
     .clk(r_clk),
     .rst(r_rstn),
-    .TXVECTOR(),///////
     .rate(rate),
     .Length(Length),
     .powerlevel(powerlevel),
     .ndbps(ndbps),
     .coding_rate(coding_rate),
     .modulation(modulation),
-    .Signal()///////
+    .Signal1(mux1),
+    .Signal2(mux2),
+    .Signal3(mux3),
+    .Signal4(mux4)
 );
 
 data_counter data_counter_inst (
@@ -178,10 +188,29 @@ input_buffer input_buffer_inst(
     .clk(r_clk),
     .rst(r_rstn), 
     .wr_en(input_wr_en),
-    .wr_byte(data),
+    .wr_data(data),
     .read_en(input_rd_en)
     .start_of_data(start_of_data),
     .end_of_data(end_of_data),
+    .length(Length),
+    .nsym(nsym),
     .data_out(data_in)
+);
+
+symbol_counter sumbol_counter_inst(
+    .clk(r_clk),
+    .rst(r_rstn), 
+    .nsym(nsym),
+    .symbol_valid(symbol_valid),
+    .last_sym(pkt_last), 
+    .last_valid(last_valid),
+    .mapper_capture_ready(mapper_capture_ready)
+);
+
+address_counter add_cnt_inst(
+    .clk(r_clk),
+    .rst(r_rstn), 
+    .en(address_count_en),
+    .add_count(rom_addr) 
 );
 endmodule 
