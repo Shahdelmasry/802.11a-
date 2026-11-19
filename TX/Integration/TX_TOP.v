@@ -60,7 +60,7 @@ wire [11:0] Length;
 wire [3:0]  rate;
 wire [2:0]  powerlevel;
 wire [8:0]  ndbps;
-wire [5:0]  mux1,mux2,mux3,mux4;
+wire [5:0]  mux1,mux2,mux3,mux4,signal_sr;
 wire        last_valid;
 wire        address_count_en;
 
@@ -109,7 +109,7 @@ TX_DATAPATH #(
     .modulation(modulation),
     .packet_end(end_of_data),
     .seed_sel(seed_sel),
-    .data_in(data_in),
+    .data_in(scr_in),//
     .tail_mask(tail_mask),
     .data_req(data_req),
     .in_ready(in_ready),
@@ -214,4 +214,14 @@ address_counter add_cnt_inst(
     .en(address_count_en),
     .add_count(rom_addr) 
 );
+
+mux4to1 mux (
+    .mux1(mux1),
+    .mux2(mux2),
+    .mux3(mux3),
+    .mux4(mux4),
+    .sel(signal_sel),
+    .muxout(signal_sr)
+);
+assign scr_in = scr_bypass ? signal_sr : data_in;
 endmodule 
